@@ -25,6 +25,9 @@ const (
 	FlagDeleteWhatsAppFilesShort = "w"
 	FlagDontWaitToClose          = "dont-wait-to-close"
 	FlagDontWaitToCloseShort     = "c"
+	FlagPreflight                = "preflight"
+	FlagPreflightShort           = "p"
+	FlagPreflightJSON            = "json"
 	FlagPrcsNestedFolders        = "process-nested-folders"
 	FlagPrcsNestedFoldersShort   = "n"
 	FlagDisplayHelp              = "help"
@@ -61,6 +64,8 @@ type ManagedModeOptions struct {
 	DeleteWhatsAppFiles        bool
 	ProcessNestedFolders       bool
 	DontWaitToClose            bool
+	Preflight                  bool
+	PreflightJSON              bool
 }
 
 // NewDefaultManagedModeOptions creates instance of ManagedModeOptions with default values.
@@ -165,6 +170,24 @@ func NewManagedFlagSet(writer io.Writer, managedOptions *ManagedModeOptions) (fl
 		FlagDontWaitToCloseShort,
 		managedOptions.DontWaitToClose,
 		fmt.Sprintf("If this is true, the application will exit immediately once processing is complete. Default: %v.", managedOptions.DontWaitToClose),
+	)
+
+	flagSet.BoolVarP(
+		&managedOptions.Preflight,
+		FlagPreflight,
+		FlagPreflightShort,
+		managedOptions.Preflight,
+		"Run a read-only preflight check instead of repairing.\n"+
+			"Lists source files, planned output and backup paths, file sizes and JPEG decodability.\n"+
+			"Creates no folders, backups or modified files.\n"+
+			"Can be combined with positional file arguments for a direct mode preflight.",
+	)
+
+	flagSet.BoolVar(
+		&managedOptions.PreflightJSON,
+		FlagPreflightJSON,
+		managedOptions.PreflightJSON,
+		"Used together with --"+FlagPreflight+": prints the preflight report as machine-readable JSON\nto standard output.",
 	)
 
 	displayHelp = flagSet.BoolP(FlagDisplayHelp, FlagDisplayHelpShort, false, "Show this help message and exit.")

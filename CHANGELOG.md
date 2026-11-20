@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Read-only preflight check (`--preflight` / `-p`, optional `--json` for machine-readable output on stdout). Lists source files, planned output and backup paths, file sizes, JPEG decodability, path conflicts and permission problems for both managed and direct modes, without creating folders, backups or modifying any files.
+
 ## [3.0.1] - 2026-03-11
 
 ### Changed

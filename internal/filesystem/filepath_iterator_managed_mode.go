@@ -103,7 +103,7 @@ func (it *FilePathsIteratorForManagedMode) All(ctx context.Context) iter.Seq[str
 			}
 
 			if entry.Mode().IsRegular() {
-				if !isJpegFileExtension(fullPath) {
+				if !IsJpegFileExtension(fullPath) {
 					continue
 				}
 
@@ -115,8 +115,8 @@ func (it *FilePathsIteratorForManagedMode) All(ctx context.Context) iter.Seq[str
 	}
 }
 
-// isJpegFileExtension returns true if the filename has a known JPEG extension.
-func isJpegFileExtension(filename string) bool {
+// IsJpegFileExtension returns true if the filename has a known JPEG extension.
+func IsJpegFileExtension(filename string) bool {
 	normalizedFullname := strings.ToLower(filename)
 	ext := filepath.Ext(normalizedFullname)
 

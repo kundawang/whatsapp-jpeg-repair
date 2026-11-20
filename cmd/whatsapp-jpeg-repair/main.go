@@ -22,6 +22,7 @@ import (
 // Env encapsulates all parameters required to run the application.
 type Env struct {
 	fs          afero.Fs
+	stdout      io.Writer
 	stderr      io.Writer
 	stdin       io.Reader
 	exeFilePath string
@@ -44,16 +45,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	env := NewEnv(appOutput, stdin, exeFilePath, os.Args[1:])
+	env := NewEnv(os.Stdout, appOutput, stdin, exeFilePath, os.Args[1:])
 	if err := env.runApp(); err != nil {
 		fmt.Fprintf(appOutput, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func NewEnv(stderr io.Writer, stdin io.Reader, exeFilePath string, args []string) *Env {
+func NewEnv(stdout io.Writer, stderr io.Writer, stdin io.Reader, exeFilePath string, args []string) *Env {
 	return &Env{
 		fs:          afero.NewOsFs(),
+		stdout:      stdout,
 		stdin:       stdin,
 		stderr:      stderr,
 		exeFilePath: exeFilePath,
@@ -66,7 +68,7 @@ func (env *Env) runApp() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	appRunner := app.NewAppRunner(env.fs, env.stderr, env.clock)
+	appRunner := app.NewAppRunner(env.fs, env.stdout, env.stderr, env.clock)
 
 	exeFolderPath := filepath.Dir(env.exeFilePath)
 	globalParams := app.NewGlobalProcessParams(env.stdin, exeFolderPath, env.args)

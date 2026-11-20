@@ -104,12 +104,16 @@ func TestEnv_runApp(t *testing.T) {
 }
 
 func TestNewEnv(t *testing.T) {
-	var stderr bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	stdin := strings.NewReader("")
 	exePath := "/home/user/Documents/WJR/WhatsAppJpegRepair"
 	args := []string{"arg1", "arg2"}
 
-	env := NewEnv(&stderr, stdin, exePath, args)
+	env := NewEnv(&stdout, &stderr, stdin, exePath, args)
+
+	if env.stdout != &stdout {
+		t.Error("stdout is not initialized properly")
+	}
 
 	if env.stderr != &stderr {
 		t.Error("stderr is not initialized properly")

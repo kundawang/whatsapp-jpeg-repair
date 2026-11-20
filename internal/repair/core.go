@@ -70,6 +70,23 @@ type SingleFileProcessor interface {
 	RegisterSuccess()
 }
 
+// PlannedBackupPath returns the backup file path that a repair run would create
+// for the given source file at the provided moment in time.
+// It is shared by the repair and the read-only preflight check,
+// so both always agree on the backup file name.
+func PlannedBackupPath(sourceFilePath string, now time.Time) string {
+	// Format constant: 2006(6) 01(1) 02(2) _ 15(3) 04(4) 05(5)
+	const timeFormatLayout = "20060102_150405"
+
+	dir := filepath.Dir(sourceFilePath)
+	ext := filepath.Ext(sourceFilePath)
+	nameOnly := strings.TrimSuffix(filepath.Base(sourceFilePath), ext)
+
+	timestamp := now.Format(timeFormatLayout)
+	backupName := fmt.Sprintf("%s_%s_backup%s", nameOnly, timestamp, ext)
+	return filepath.Join(dir, backupName)
+}
+
 // createBackupFile creates a copy in the same directory as the source.
 func (ir *ImageRepairerBase) createBackupFile(ctx context.Context, sourceFilePath string) (string, error) {
 	if err := ctx.Err(); err != nil {
@@ -85,16 +102,7 @@ func (ir *ImageRepairerBase) createBackupFile(ctx context.Context, sourceFilePat
 		return "", fmt.Errorf("source file is not a regular file")
 	}
 
-	// Format constant: 2006(6) 01(1) 02(2) _ 15(3) 04(4) 05(5)
-	const timeFormatLayout = "20060102_150405"
-
-	dir := filepath.Dir(sourceFilePath)
-	ext := filepath.Ext(sourceFilePath)
-	nameOnly := strings.TrimSuffix(filepath.Base(sourceFilePath), ext)
-
-	timestamp := ir.clock.Now().Format(timeFormatLayout)
-	backupName := fmt.Sprintf("%s_%s_backup%s", nameOnly, timestamp, ext)
-	backupPath := filepath.Join(dir, backupName)
+	backupPath := PlannedBackupPath(sourceFilePath, ir.clock.Now())
 
 	src, err := ir.fs.Open(sourceFilePath)
 	if err != nil {

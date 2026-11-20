@@ -29,18 +29,21 @@ func TestNewAppRunner(t *testing.T) {
 	tests := []struct {
 		name   string
 		fs     afero.Fs
+		stdout io.Writer
 		stderr io.Writer
 		clock  repair.Clock
 	}{
 		{
 			name:   "Initialization with all deps",
 			fs:     memFs,
+			stdout: &buf,
 			stderr: &buf,
 			clock:  mClock,
 		},
 		{
 			name:   "Initialization with nil",
 			fs:     nil,
+			stdout: nil,
 			stderr: nil,
 			clock:  nil,
 		},
@@ -48,7 +51,7 @@ func TestNewAppRunner(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			runner := NewAppRunner(tt.fs, tt.stderr, tt.clock)
+			runner := NewAppRunner(tt.fs, tt.stdout, tt.stderr, tt.clock)
 
 			if runner == nil {
 				t.Fatal("NewAppRunner returned nil")
@@ -56,6 +59,10 @@ func TestNewAppRunner(t *testing.T) {
 
 			if runner.fs != tt.fs {
 				t.Errorf("fs: want %v, got %v", tt.fs, runner.fs)
+			}
+
+			if runner.stdout != tt.stdout {
+				t.Errorf("stdout: want %v, got %v", tt.stdout, runner.stdout)
 			}
 
 			if runner.stderr != tt.stderr {
@@ -410,4 +417,106 @@ func TestRunner_ProcessCommandLineArguments(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunner_Preflight(t *testing.T) {
+	fixedTime := time.Date(2026, 12, 25, 17, 18, 19, 0, time.UTC)
+	mClock := &testutil.MockClock{FixedTime: fixedTime}
+
+	t.Run("Managed preflight with JSON output: checklist emitted, zero writes", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		_ = fs.MkdirAll("/src", filesystem.DefaultFolderPermissions)
+		_ = testutil.CreateJpegFile(fs, "/src/photo.jpg")
+		_ = afero.WriteFile(fs, "/src/broken.jpg", []byte("not a jpeg"), filesystem.DefaultFilePermissions)
+
+		srcBytesBefore, _ := afero.ReadFile(fs, "/src/photo.jpg")
+
+		var stdout, stderr bytes.Buffer
+		r := &Runner{fs: fs, stdout: &stdout, stderr: &stderr, clock: mClock}
+
+		params := cliProcessParams{
+			Stdin:              strings.NewReader("\n"),
+			ExeFolderPath:      "/app",
+			ArgsWithoutAppName: []string{"--preflight", "--json", "--src-path", "/src", "--dest-path", "/dst", "--dont-wait-to-close"},
+		}
+
+		err := r.ProcessCommandLineArguments(context.Background(), params)
+		if err == nil {
+			t.Fatal("expected an error because broken.jpg is not decodable, got nil")
+		}
+
+		jsonOut := stdout.String()
+		for _, want := range []string{`"mode": "managed"`, `"source": "/src/photo.jpg"`, `"output": "/dst/photo.jpg"`, `"decodable": true`, `"errors": 1`} {
+			if !strings.Contains(jsonOut, want) {
+				t.Errorf("JSON report does not contain %q.\nJSON:\n%s", want, jsonOut)
+			}
+		}
+
+		// Zero writes: destination folder not created, no backups, sources untouched.
+		if exists, _ := afero.Exists(fs, "/dst"); exists {
+			t.Error("preflight created the destination folder, it must be read-only")
+		}
+
+		srcBytesAfter, _ := afero.ReadFile(fs, "/src/photo.jpg")
+		if !bytes.Equal(srcBytesBefore, srcBytesAfter) {
+			t.Error("preflight modified the source file, it must be read-only")
+		}
+
+		files, _ := afero.ReadDir(fs, "/src")
+		for _, f := range files {
+			if strings.Contains(f.Name(), "_backup") {
+				t.Errorf("preflight created a backup file %s, it must be read-only", f.Name())
+			}
+		}
+	})
+
+	t.Run("Direct preflight: text report on stderr, no changes", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		_ = testutil.CreateJpegFile(fs, "/photo.jpg")
+
+		var stdout, stderr bytes.Buffer
+		r := &Runner{fs: fs, stdout: &stdout, stderr: &stderr, clock: mClock}
+
+		params := cliProcessParams{
+			ArgsWithoutAppName: []string{"--preflight", "/photo.jpg"},
+		}
+
+		if err := r.ProcessCommandLineArguments(context.Background(), params); err != nil {
+			t.Fatalf("direct preflight failed: %v", err)
+		}
+
+		out := stderr.String()
+		for _, want := range []string{"Preflight report (direct mode)", "/photo.jpg", "decodable", "_backup"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("text report does not contain %q.\nReport:\n%s", want, out)
+			}
+		}
+
+		files, _ := afero.ReadDir(fs, "/")
+		for _, f := range files {
+			if strings.Contains(f.Name(), "_backup") {
+				t.Errorf("preflight created a backup file %s, it must be read-only", f.Name())
+			}
+		}
+	})
+
+	t.Run("Repair command unchanged: positional args without preflight flag still repair", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		_ = testutil.CreateJpegFile(fs, "/photo.jpg")
+
+		var stdout, stderr bytes.Buffer
+		r := &Runner{fs: fs, stdout: &stdout, stderr: &stderr, clock: mClock}
+
+		params := cliProcessParams{
+			ArgsWithoutAppName: []string{"/photo.jpg"},
+		}
+
+		if err := r.ProcessCommandLineArguments(context.Background(), params); err != nil {
+			t.Fatalf("repair failed: %v", err)
+		}
+
+		if !strings.Contains(stderr.String(), "Repaired: 1 file(s)") {
+			t.Errorf("expected a normal repair run, got:\n%s", stderr.String())
+		}
+	})
 }

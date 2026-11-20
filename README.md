@@ -162,9 +162,29 @@ chmod +x ./your-new-custom-script.sh
 | **--delete-whatsapp-files**         | **-w**    | Delete source files after successful processing   | **false**            |
 | **--process-nested-folders**        | **-n**    | Process files in subfolders recursively           | **false**            |
 | **--dont-wait-to-close**            | **-c**    | Exit immediately after completion                 | **false**            |
+| **--preflight**                     | **-p**    | Read-only preflight check, changes nothing        | **false**            |
+| **--json**                          |           | With **--preflight**: print the report as JSON to stdout | **false**     |
 | **--help**                          | **-h**    | Show all available options                        | -                    |
 
 Note: The **-c**, **--dont-wait-to-close** flag is automatically ignored in non-interactive sessions. If the application detects that output is being redirected to a file (e.g., **whatsapp-jpeg-repair 2>log.txt**), it will exit immediately upon completion without waiting for a keypress.
+
+### Preflight check (read-only)
+
+Before repairing a whole directory, you can run a preflight check that changes nothing on disk (no folders, backups or repaired files are created) and lists, for every file: the source path, the planned output and backup paths, the file size, whether the JPEG is decodable, and any path conflicts or permission problems. Entries are sorted by source path; symbolic links are reported as skipped.
+
+```bash
+# managed mode preflight (human-readable report on stderr)
+whatsapp-jpeg-repair --preflight --src-path /photos/broken --dest-path /photos/repaired -n
+
+# machine-readable JSON report on stdout
+whatsapp-jpeg-repair --preflight --json --src-path /photos/broken --dest-path /photos/repaired
+
+# direct mode preflight for explicitly listed files
+whatsapp-jpeg-repair --preflight /photos/a.jpg /photos/b.jpg
+```
+
+The application exits with a non-zero status if the preflight check finds blocking problems (for example, undecodable files or unwritable destinations), so the check can be used in scripts before running the actual repair.
+
 
 ## <a name="migration-guide">Migration Guide</a>
 

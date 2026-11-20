@@ -11,6 +11,7 @@ import (
 
 	"github.com/cdefgah/whatsapp-jpeg-repair/internal/filesystem"
 	"github.com/cdefgah/whatsapp-jpeg-repair/internal/options"
+	"github.com/cdefgah/whatsapp-jpeg-repair/internal/preflight"
 	"github.com/cdefgah/whatsapp-jpeg-repair/internal/repair"
 	"github.com/spf13/afero"
 )
@@ -18,14 +19,16 @@ import (
 // Runner encapsulates core params for the application.
 type Runner struct {
 	fs     afero.Fs
+	stdout io.Writer
 	stderr io.Writer
 	clock  repair.Clock
 }
 
 // NewAppRunner create new instance of AppRunner structure.
-func NewAppRunner(fs afero.Fs, stderr io.Writer, clock repair.Clock) *Runner {
+func NewAppRunner(fs afero.Fs, stdout io.Writer, stderr io.Writer, clock repair.Clock) *Runner {
 	return &Runner{
 		fs:     fs,
+		stdout: stdout,
 		stderr: stderr,
 		clock:  clock,
 	}
@@ -70,9 +73,22 @@ func (r *Runner) ProcessCommandLineArguments(ctx context.Context, params cliProc
 		// check if non-managed mode arguments present for managed mode
 		positionalArgsPresent := len(flagSet.Args()) > 0
 
-		if positionalArgsPresent {
+		if positionalArgsPresent && !managedOptions.Preflight {
 			flagSet.Usage()
 			return nil
+		}
+
+		if managedOptions.Preflight {
+			if positionalArgsPresent {
+				// preflight for explicitly passed files, following direct mode rules
+				directOptions := options.NewDirectOptions(flagSet.Args())
+				return r.runPreflightDirectMode(ctx, directOptions, managedOptions.PreflightJSON)
+			}
+
+			managedOptions.SourceFolderPath = filepath.Clean(managedOptions.SourceFolderPath)
+			managedOptions.DestinationFolderPath = filepath.Clean(managedOptions.DestinationFolderPath)
+
+			return r.runPreflightManagedMode(ctx, params.Stdin, *managedOptions)
 		}
 
 		managedOptions.SourceFolderPath = filepath.Clean(managedOptions.SourceFolderPath)
@@ -101,6 +117,60 @@ func (r *Runner) runAppInDirectMode(ctx context.Context, opts options.DirectMode
 
 	if imageRepairer.HasErrors() {
 		return fmt.Errorf("the processing of image files in direct mode has failed")
+	}
+
+	return nil
+}
+
+// runPreflightDirectMode runs the read-only preflight check for files passed in the command line.
+func (r *Runner) runPreflightDirectMode(ctx context.Context, opts options.DirectModeOptions, asJSON bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	fmt.Fprintln(r.stderr, "Running read-only preflight check in direct mode, no files will be changed.")
+
+	planner := preflight.NewPlanner(r.fs, r.clock, preflight.DefaultMaxEntries)
+	report := planner.PlanDirect(ctx, opts)
+
+	return r.emitPreflightReport(report, asJSON)
+}
+
+// runPreflightManagedMode runs the read-only preflight check according to the managed mode parameters.
+func (r *Runner) runPreflightManagedMode(ctx context.Context, stdin io.Reader, opts options.ManagedModeOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	fmt.Fprintln(r.stderr, "Running read-only preflight check in managed mode with the following parameters:")
+	fmt.Fprintln(r.stderr, opts.String())
+
+	planner := preflight.NewPlanner(r.fs, r.clock, preflight.DefaultMaxEntries)
+	report, err := planner.PlanManaged(ctx, opts)
+	if err != nil {
+		return err
+	}
+
+	reportErr := r.emitPreflightReport(report, opts.PreflightJSON)
+
+	repair.RunAndWaitForExit(ctx, stdin, r.stderr, opts.DontWaitToClose)
+
+	return reportErr
+}
+
+// emitPreflightReport prints the report as JSON to stdout or as text to stderr,
+// and returns an error if the check found blocking problems.
+func (r *Runner) emitPreflightReport(report *preflight.Report, asJSON bool) error {
+	if asJSON {
+		if err := report.WriteJSON(r.stdout); err != nil {
+			return fmt.Errorf("write JSON preflight report: %w", err)
+		}
+	} else {
+		report.WriteText(r.stderr)
+	}
+
+	if report.Errors > 0 {
+		return fmt.Errorf("preflight check found problems with %d file(s)", report.Errors)
 	}
 
 	return nil
